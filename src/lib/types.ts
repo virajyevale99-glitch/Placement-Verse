@@ -64,6 +64,7 @@ export interface PublicSnapshot {
   stats: PlacementStats;
   placements: PublicPlacement[]; // newest first, stable order
   companies: CompanySummary[];
+  students?: PublicStudent[];
   generated_at: string;
   demo?: boolean;
 }
@@ -84,12 +85,22 @@ export interface Cohort {
   placements: PublicPlacement[];
 }
 
+export interface PublicStudent {
+  student_id: string;
+  full_name: string;
+  roll_number: string;
+  department: string;
+  photo_url?: string;
+}
+
 export interface DirectoryEntry {
   student_id: string;
   student_name: string;
+  roll_number?: string;
   department: string;
   latest_placement_date: string;
   offers: PublicPlacement[];
+  status: 'placed' | 'unplaced';
 }
 
 // ---------- Admin ----------

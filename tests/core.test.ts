@@ -78,6 +78,33 @@ test('directory: one entry per student, all offers kept, filters and sort', () =
   assert.deepEqual(filterDirectory(dir, { query: 'BO' }).map((e) => e.student_id), ['bob']);
 });
 
+test('directory: supports whole batch roster with search by roll number and status', () => {
+  const roster = [
+    { student_id: 's1', full_name: 'Aashish Verma', roll_number: 'D001', department: 'MBA' },
+    { student_id: 's2', full_name: 'Aastha Narang', roll_number: 'D002', department: 'MBA' },
+    { student_id: 's3', full_name: 'Viraj Yevale', roll_number: 'D063', department: 'MBA' },
+  ];
+  const placements = [p('s3', 'c1', '2026-10-15')];
+  const dir = buildDirectory(placements, roster);
+  assert.equal(dir.length, 3);
+  assert.equal(dir.find((e) => e.roll_number === 'D063')!.status, 'placed');
+  assert.equal(dir.find((e) => e.roll_number === 'D001')!.status, 'unplaced');
+
+  // Search by roll number
+  const byRoll = filterDirectory(dir, { query: 'd001' });
+  assert.equal(byRoll.length, 1);
+  assert.equal(byRoll[0].student_name, 'Aashish Verma');
+
+  // Search by name
+  const byName = filterDirectory(dir, { query: 'viraj' });
+  assert.equal(byName.length, 1);
+  assert.equal(byName[0].roll_number, 'D063');
+
+  // Filter by status
+  assert.equal(filterDirectory(dir, { status: 'unplaced' }).length, 2);
+  assert.equal(filterDirectory(dir, { status: 'placed' }).length, 1);
+});
+
 test('pagination never drops items and clamps out-of-range pages', () => {
   const items = Array.from({ length: 53 }, (_, i) => i);
   const seen: number[] = [];

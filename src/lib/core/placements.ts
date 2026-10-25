@@ -7,6 +7,7 @@ import type {
   DirectoryEntry,
   PlacementStats,
   PublicPlacement,
+  PublicStudent,
 } from '../types';
 
 /** Newest first: placement_date desc, published_at desc, placement_id asc. A total, stable order. */
@@ -81,17 +82,53 @@ export function paginateCohorts(cohorts: Cohort[], page: number, daysPerPage: nu
   return { days: cohorts.slice((current - 1) * size, current * size), page: current, totalPages };
 }
 
-/** One entry per unique student, carrying every published offer. */
-export function buildDirectory(placements: PublicPlacement[]): DirectoryEntry[] {
+/** One entry per unique student, carrying every published offer and placement status. */
+export function buildDirectory(placements: PublicPlacement[], allStudents?: PublicStudent[]): DirectoryEntry[] {
   const by = new Map<string, DirectoryEntry>();
   for (const p of sortPlacements(placements)) {
     let e = by.get(p.student_id);
     if (!e) {
-      e = { student_id: p.student_id, student_name: p.student_name, department: p.department, latest_placement_date: p.placement_date, offers: [] };
+      e = {
+        student_id: p.student_id,
+        student_name: p.student_name,
+        roll_number: undefined,
+        department: p.department,
+        latest_placement_date: p.placement_date,
+        offers: [],
+        status: 'placed',
+      };
       by.set(p.student_id, e);
     }
     e.offers.push(p);
   }
+
+  if (allStudents && allStudents.length > 0) {
+    for (const s of allStudents) {
+      let existing = by.get(s.student_id);
+      if (!existing) {
+        existing = [...by.values()].find(
+          (e) => (e.roll_number && e.roll_number.toLowerCase() === s.roll_number.toLowerCase()) ||
+                 e.student_name.toLowerCase() === s.full_name.toLowerCase()
+        );
+      }
+      if (existing) {
+        if (s.full_name) existing.student_name = s.full_name;
+        if (!existing.roll_number) existing.roll_number = s.roll_number;
+      } else {
+        const key = s.student_id || s.roll_number;
+        by.set(key, {
+          student_id: key,
+          student_name: s.full_name,
+          roll_number: s.roll_number,
+          department: s.department || 'MBA',
+          latest_placement_date: '',
+          offers: [],
+          status: 'unplaced',
+        });
+      }
+    }
+  }
+
   return [...by.values()];
 }
 
@@ -100,22 +137,50 @@ export interface DirectoryFilter {
   companyId?: string;
   from?: string;
   to?: string;
+  status?: 'all' | 'placed' | 'unplaced';
   sort?: 'newest' | 'name';
 }
 
 export function filterDirectory(entries: DirectoryEntry[], f: DirectoryFilter): DirectoryEntry[] {
   const q = (f.query || '').trim().toLowerCase();
+  const hasOfferFilters = !!(f.companyId || f.from || f.to);
+
   const out = entries.filter((e) => {
-    if (q && !e.student_name.toLowerCase().includes(q)) return false;
-    return e.offers.some((o) => {
-      if (f.companyId && o.company_id !== f.companyId) return false;
-      if (f.from && o.placement_date < f.from) return false;
-      if (f.to && o.placement_date > f.to) return false;
-      return true;
-    });
+    if (f.status === 'placed' && e.status === 'unplaced') return false;
+    if (f.status === 'unplaced' && e.status === 'placed') return false;
+
+    if (hasOfferFilters) {
+      if (!e.offers.length) return false;
+      const match = e.offers.some((o) => {
+        if (f.companyId && o.company_id !== f.companyId) return false;
+        if (f.from && o.placement_date < f.from) return false;
+        if (f.to && o.placement_date > f.to) return false;
+        return true;
+      });
+      if (!match) return false;
+    }
+
+    if (q) {
+      const matchName = e.student_name.toLowerCase().includes(q);
+      const matchRoll = e.roll_number ? e.roll_number.toLowerCase().includes(q) : false;
+      const matchCompany = e.offers.some((o) => o.company_name.toLowerCase().includes(q));
+      if (!matchName && !matchRoll && !matchCompany) return false;
+    }
+
+    return true;
   });
+
   if (f.sort === 'name') {
     out.sort((a, b) => a.student_name.localeCompare(b.student_name, undefined, { sensitivity: 'base' }) || (a.student_id < b.student_id ? -1 : 1));
+  } else if (f.sort === 'newest') {
+    out.sort((a, b) => {
+      if (a.latest_placement_date && b.latest_placement_date) {
+        return b.latest_placement_date.localeCompare(a.latest_placement_date) || a.student_name.localeCompare(b.student_name);
+      }
+      if (a.latest_placement_date) return -1;
+      if (b.latest_placement_date) return 1;
+      return (a.roll_number || '').localeCompare(b.roll_number || '') || a.student_name.localeCompare(b.student_name);
+    });
   }
   return out;
 }
